@@ -25,6 +25,27 @@ interface AppStore {
   subscribeRealtime: () => () => void;
 }
 
+const supabaseInsert = async (table: 'items' | 'locations', row: any) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.from(table).insert(row).select();
+  if (error) console.error(`[Supabase] INSERT ${table} error:`, error);
+  else console.log(`[Supabase] INSERT ${table} ok:`, data);
+};
+
+const supabaseUpdate = async (table: 'items' | 'locations', values: any, id: string) => {
+  if (!supabase) return;
+  const { data, error } = await supabase.from(table).update(values).eq('id', id).select();
+  if (error) console.error(`[Supabase] UPDATE ${table} error:`, error);
+  else console.log(`[Supabase] UPDATE ${table} ok:`, data);
+};
+
+const supabaseDelete = async (table: 'items' | 'locations', id: string) => {
+  if (!supabase) return;
+  const { error } = await supabase.from(table).delete().eq('id', id);
+  if (error) console.error(`[Supabase] DELETE ${table} error:`, error);
+  else console.log(`[Supabase] DELETE ${table} ok`);
+};
+
 export const useAppStore = create<AppStore>((set, get) => ({
   items: [],
   locations: [],
@@ -34,97 +55,70 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const id = generateId();
     const now = getCurrentTimestamp();
     const newItem: Item = { id, name, locationId, quantity, note, createdAt: now, updatedAt: now };
-    set((state) => {
-      const newItems = [...state.items, newItem];
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('items').insert({
-          id, name, location_id: locationId, quantity, note,
-          created_at: now, updated_at: now,
-        });
-      } else {
-        saveItems(newItems);
-      }
-      return { items: newItems };
-    });
+    set((state) => ({ items: [...state.items, newItem] }));
+    if (isSupabaseConfigured()) {
+      supabaseInsert('items', { id, name, location_id: locationId, quantity, note, created_at: now, updated_at: now });
+    } else {
+      saveItems([...get().items]);
+    }
   },
 
   updateItem: (id, name, locationId, quantity, note) => {
     const updatedAt = getCurrentTimestamp();
-    set((state) => {
-      const newItems = state.items.map((item) =>
+    set((state) => ({
+      items: state.items.map((item) =>
         item.id === id ? { ...item, name, locationId, quantity, note, updatedAt } : item
-      );
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('items').update({ name, location_id: locationId, quantity, note, updated_at: updatedAt }).eq('id', id);
-      } else {
-        saveItems(newItems);
-      }
-      return { items: newItems };
-    });
+      ),
+    }));
+    if (isSupabaseConfigured()) {
+      supabaseUpdate('items', { name, location_id: locationId, quantity, note, updated_at: updatedAt }, id);
+    } else {
+      saveItems(get().items);
+    }
   },
 
   deleteItem: (id) => {
-    set((state) => {
-      const newItems = state.items.filter((item) => item.id !== id);
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('items').delete().eq('id', id);
-      } else {
-        saveItems(newItems);
-      }
-      return { items: newItems };
-    });
+    set((state) => ({ items: state.items.filter((item) => item.id !== id) }));
+    if (isSupabaseConfigured()) {
+      supabaseDelete('items', id);
+    } else {
+      saveItems(get().items);
+    }
   },
 
   addLocation: (name, description) => {
-    const newLocation: Location = {
-      id: generateId(),
-      name,
-      description,
-      createdAt: getCurrentTimestamp(),
-      updatedAt: getCurrentTimestamp(),
-    };
-    set((state) => {
-      const newLocations = [...state.locations, newLocation];
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('locations').insert({
-          id: newLocation.id,
-          name: newLocation.name,
-          description: newLocation.description,
-          created_at: newLocation.createdAt,
-          updated_at: newLocation.updatedAt,
-        });
-      } else {
-        saveLocations(newLocations);
-      }
-      return { locations: newLocations };
-    });
+    const id = generateId();
+    const now = getCurrentTimestamp();
+    const newLocation: Location = { id, name, description, createdAt: now, updatedAt: now };
+    set((state) => ({ locations: [...state.locations, newLocation] }));
+    if (isSupabaseConfigured()) {
+      supabaseInsert('locations', { id, name, description, created_at: now, updated_at: now });
+    } else {
+      saveLocations([...get().locations]);
+    }
   },
 
   updateLocation: (id, name, description) => {
-    set((state) => {
-      const updatedAt = getCurrentTimestamp();
-      const newLocations = state.locations.map((location) =>
-        location.id === id ? { ...location, name, description, updatedAt } : location
-      );
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('locations').update({ name, description, updated_at: updatedAt }).eq('id', id);
-      } else {
-        saveLocations(newLocations);
-      }
-      return { locations: newLocations };
-    });
+    const updatedAt = getCurrentTimestamp();
+    set((state) => ({
+      locations: get().locations.map((loc) =>
+        loc.id === id ? { ...loc, name, description, updatedAt } : loc
+      ),
+    }));
+    if (isSupabaseConfigured()) {
+      supabaseUpdate('locations', { name, description, updated_at: updatedAt }, id);
+    } else {
+      saveLocations(get().locations);
+    }
   },
 
   deleteLocation: (id) => {
-    set((state) => {
-      const newLocations = state.locations.filter((location) => location.id !== id);
-      if (isSupabaseConfigured() && supabase) {
-        supabase.from('locations').delete().eq('id', id);
-      } else {
-        saveLocations(newLocations);
-      }
-      return { locations: newLocations };
-    });
+    set((state) => ({ locations: get().locations.filter((loc) => loc.id !== id) }));
+    if (isSupabaseConfigured()) {
+      supabaseDelete('locations', id);
+    } else {
+      saveLocations(get().locations);
+    }
   },
 
   getItemById: (id) => get().items.find((item) => item.id === id),
@@ -137,11 +131,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   initializeData: async () => {
+    console.log('[Supabase] configured:', isSupabaseConfigured(), supabase ? 'client OK' : 'client NULL');
     if (isSupabaseConfigured() && supabase) {
-      const [{ data: itemsData }, { data: locationsData }] = await Promise.all([
+      console.log('[Supabase] loading from cloud...');
+      const [{ data: itemsData, error: iErr }, { data: locationsData, error: lErr }] = await Promise.all([
         supabase.from('items').select('*'),
         supabase.from('locations').select('*'),
       ]);
+      if (iErr) console.error('[Supabase] items load error:', iErr);
+      if (lErr) console.error('[Supabase] locations load error:', lErr);
+      console.log('[Supabase] items:', itemsData?.length ?? 0, 'locations:', locationsData?.length ?? 0);
       set({
         items: (itemsData || []).map((r: any) => ({
           id: r.id, name: r.name, locationId: r.location_id, quantity: r.quantity, note: r.note,
@@ -154,31 +153,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
         isLoaded: true,
       });
     } else {
-      const items = loadItems();
-      const locations = loadLocations();
-      set({ items, locations, isLoaded: true });
+      console.log('[Supabase] not configured, using localStorage');
+      set({ items: loadItems(), locations: loadLocations(), isLoaded: true });
     }
   },
 
   subscribeRealtime: () => {
     if (!isSupabaseConfigured() || !supabase) return () => {};
-    const channel = supabase.channel('inventory-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, async () => {
-      const { data } = await supabase!.from('items').select('*');
-      set({
-        items: (data || []).map((r: any) => ({
-          id: r.id, name: r.name, locationId: r.location_id, quantity: r.quantity, note: r.note,
-          createdAt: r.created_at, updatedAt: r.updated_at,
-        })),
-      });
-    }).on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, async () => {
-      const { data } = await supabase!.from('locations').select('*');
-      set({
-        locations: (data || []).map((r: any) => ({
-          id: r.id, name: r.name, description: r.description,
-          createdAt: r.created_at, updatedAt: r.updated_at,
-        })),
-      });
-    }).subscribe();
+    const channel = supabase.channel('inventory-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, async () => {
+        const { data } = await supabase!.from('items').select('*');
+        set({
+          items: (data || []).map((r: any) => ({
+            id: r.id, name: r.name, locationId: r.location_id, quantity: r.quantity, note: r.note,
+            createdAt: r.created_at, updatedAt: r.updated_at,
+          })),
+        });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, async () => {
+        const { data } = await supabase!.from('locations').select('*');
+        set({
+          locations: (data || []).map((r: any) => ({
+            id: r.id, name: r.name, description: r.description,
+            createdAt: r.created_at, updatedAt: r.updated_at,
+          })),
+        });
+      })
+      .subscribe();
     return () => { supabase.removeChannel(channel); };
   },
 }));
