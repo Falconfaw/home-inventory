@@ -6,7 +6,7 @@ import { SearchPage } from '@/pages/Search';
 
 export default function App() {
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/items" element={<ItemsPage />} />
