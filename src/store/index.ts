@@ -31,19 +31,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isLoaded: false,
 
   addItem: (name, locationId, quantity, note) => {
-    const newItem: Item = {
-      id: generateId(),
-      name,
-      locationId,
-      quantity,
-      note,
-      createdAt: getCurrentTimestamp(),
-      updatedAt: getCurrentTimestamp(),
-    };
+    const id = generateId();
+    const now = getCurrentTimestamp();
+    const newItem: Item = { id, name, locationId, quantity, note, createdAt: now, updatedAt: now };
     set((state) => {
       const newItems = [...state.items, newItem];
       if (isSupabaseConfigured() && supabase) {
-        supabase.from('items').insert(newItem);
+        supabase.from('items').insert({
+          id, name, location_id: locationId, quantity, note,
+          created_at: now, updated_at: now,
+        });
       } else {
         saveItems(newItems);
       }
@@ -52,11 +49,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   updateItem: (id, name, locationId, quantity, note) => {
+    const updatedAt = getCurrentTimestamp();
     set((state) => {
-      const updated = { ...state.items.find((i) => i.id === id)!, name, locationId, quantity, note, updatedAt: getCurrentTimestamp() };
-      const newItems = state.items.map((item) => (item.id === id ? updated : item));
+      const newItems = state.items.map((item) =>
+        item.id === id ? { ...item, name, locationId, quantity, note, updatedAt } : item
+      );
       if (isSupabaseConfigured() && supabase) {
-        supabase.from('items').update({ name, location_id: locationId, quantity, note, updated_at: updated.updatedAt }).eq('id', id);
+        supabase.from('items').update({ name, location_id: locationId, quantity, note, updated_at: updatedAt }).eq('id', id);
       } else {
         saveItems(newItems);
       }
