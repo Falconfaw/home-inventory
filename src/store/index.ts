@@ -1,75 +1,81 @@
 import { create } from 'zustand';
 import { Item, Location } from '@/types';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { loadItems, saveItems, loadLocations, saveLocations, generateId, getCurrentTimestamp } from '@/utils/storage';
 
 interface AppStore {
   items: Item[];
   locations: Location[];
+  isLoaded: boolean;
 
-  // 物品操作
   addItem: (name: string, locationId: string, quantity?: string, note?: string) => void;
   updateItem: (id: string, name: string, locationId: string, quantity?: string, note?: string) => void;
   deleteItem: (id: string) => void;
 
-  // 位置操作
   addLocation: (name: string, description?: string) => void;
   updateLocation: (id: string, name: string, description?: string) => void;
   deleteLocation: (id: string) => void;
 
-  // 查询操作
   getItemById: (id: string) => Item | undefined;
   getLocationById: (id: string) => Location | undefined;
   getItemsByLocationId: (locationId: string) => Item[];
   searchItems: (keyword: string) => Item[];
 
-  // 初始化数据
-  initializeData: () => void;
+  initializeData: () => Promise<void>;
+  subscribeRealtime: () => () => void;
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
   items: [],
   locations: [],
+  isLoaded: false,
 
-  // 添加物品
-  addItem: (name, locationId, note) => {
+  addItem: (name, locationId, quantity, note) => {
     const newItem: Item = {
       id: generateId(),
       name,
       locationId,
+      quantity,
       note,
       createdAt: getCurrentTimestamp(),
       updatedAt: getCurrentTimestamp(),
     };
     set((state) => {
       const newItems = [...state.items, newItem];
-      saveItems(newItems);
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('items').insert(newItem);
+      } else {
+        saveItems(newItems);
+      }
       return { items: newItems };
     });
   },
 
-  // 更新物品
   updateItem: (id, name, locationId, quantity, note) => {
     set((state) => {
-      const newItems = state.items.map((item) =>
-        item.id === id
-          ? { ...item, name, locationId, quantity, note, updatedAt: getCurrentTimestamp() }
-          : item
-      );
-      saveItems(newItems);
+      const updated = { ...state.items.find((i) => i.id === id)!, name, locationId, quantity, note, updatedAt: getCurrentTimestamp() };
+      const newItems = state.items.map((item) => (item.id === id ? updated : item));
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('items').update({ name, location_id: locationId, quantity, note, updated_at: updated.updatedAt }).eq('id', id);
+      } else {
+        saveItems(newItems);
+      }
       return { items: newItems };
     });
   },
 
-  // 删除物品
   deleteItem: (id) => {
     set((state) => {
       const newItems = state.items.filter((item) => item.id !== id);
-      saveItems(newItems);
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('items').delete().eq('id', id);
+      } else {
+        saveItems(newItems);
+      }
       return { items: newItems };
     });
   },
 
-  // 添加位置
   addLocation: (name, description) => {
     const newLocation: Location = {
       id: generateId(),
@@ -80,61 +86,100 @@ export const useAppStore = create<AppStore>((set, get) => ({
     };
     set((state) => {
       const newLocations = [...state.locations, newLocation];
-      saveLocations(newLocations);
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('locations').insert({
+          id: newLocation.id,
+          name: newLocation.name,
+          description: newLocation.description,
+          created_at: newLocation.createdAt,
+          updated_at: newLocation.updatedAt,
+        });
+      } else {
+        saveLocations(newLocations);
+      }
       return { locations: newLocations };
     });
   },
 
-  // 更新位置
   updateLocation: (id, name, description) => {
     set((state) => {
+      const updatedAt = getCurrentTimestamp();
       const newLocations = state.locations.map((location) =>
-        location.id === id
-          ? { ...location, name, description, updatedAt: getCurrentTimestamp() }
-          : location
+        location.id === id ? { ...location, name, description, updatedAt } : location
       );
-      saveLocations(newLocations);
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('locations').update({ name, description, updated_at: updatedAt }).eq('id', id);
+      } else {
+        saveLocations(newLocations);
+      }
       return { locations: newLocations };
     });
   },
 
-  // 删除位置
   deleteLocation: (id) => {
     set((state) => {
       const newLocations = state.locations.filter((location) => location.id !== id);
-      saveLocations(newLocations);
+      if (isSupabaseConfigured() && supabase) {
+        supabase.from('locations').delete().eq('id', id);
+      } else {
+        saveLocations(newLocations);
+      }
       return { locations: newLocations };
     });
   },
 
-  // 根据ID获取物品
-  getItemById: (id) => {
-    return get().items.find((item) => item.id === id);
-  },
-
-  // 根据ID获取位置
-  getLocationById: (id) => {
-    return get().locations.find((location) => location.id === id);
-  },
-
-  // 根据位置ID获取物品列表
-  getItemsByLocationId: (locationId) => {
-    return get().items.filter((item) => item.locationId === locationId);
-  },
-
-  // 搜索物品
+  getItemById: (id) => get().items.find((item) => item.id === id),
+  getLocationById: (id) => get().locations.find((location) => location.id === id),
+  getItemsByLocationId: (locationId) => get().items.filter((item) => item.locationId === locationId),
   searchItems: (keyword) => {
     if (!keyword) return get().items;
     const lowerKeyword = keyword.toLowerCase();
-    return get().items.filter((item) =>
-      item.name.toLowerCase().includes(lowerKeyword)
-    );
+    return get().items.filter((item) => item.name.toLowerCase().includes(lowerKeyword));
   },
 
-  // 初始化数据
-  initializeData: () => {
-    const items = loadItems();
-    const locations = loadLocations();
-    set({ items, locations });
+  initializeData: async () => {
+    if (isSupabaseConfigured() && supabase) {
+      const [{ data: itemsData }, { data: locationsData }] = await Promise.all([
+        supabase.from('items').select('*'),
+        supabase.from('locations').select('*'),
+      ]);
+      set({
+        items: (itemsData || []).map((r: any) => ({
+          id: r.id, name: r.name, locationId: r.location_id, quantity: r.quantity, note: r.note,
+          createdAt: r.created_at, updatedAt: r.updated_at,
+        })),
+        locations: (locationsData || []).map((r: any) => ({
+          id: r.id, name: r.name, description: r.description,
+          createdAt: r.created_at, updatedAt: r.updated_at,
+        })),
+        isLoaded: true,
+      });
+    } else {
+      const items = loadItems();
+      const locations = loadLocations();
+      set({ items, locations, isLoaded: true });
+    }
+  },
+
+  subscribeRealtime: () => {
+    if (!isSupabaseConfigured() || !supabase) return () => {};
+    const channel = supabase.channel('inventory-changes').on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, async () => {
+      const { data } = await supabase!.from('items').select('*');
+      set({
+        items: (data || []).map((r: any) => ({
+          id: r.id, name: r.name, locationId: r.location_id, quantity: r.quantity, note: r.note,
+          createdAt: r.created_at, updatedAt: r.updated_at,
+        })),
+      });
+    }).on('postgres_changes', { event: '*', schema: 'public', table: 'locations' }, async () => {
+      const { data } = await supabase!.from('locations').select('*');
+      set({
+        locations: (data || []).map((r: any) => ({
+          id: r.id, name: r.name, description: r.description,
+          createdAt: r.created_at, updatedAt: r.updated_at,
+        })),
+      });
+    }).subscribe();
+    return () => { supabase.removeChannel(channel); };
   },
 }));
